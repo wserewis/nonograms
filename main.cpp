@@ -2,10 +2,54 @@
 #include <vector>
 #include <thread>
 #include <sstream>
+#include <random>
 #include <mpi.h>
 #define EMPTY -1
 
 using namespace std;
+vector<vector<std::vector<int>>> generateNonogram(int rowCount, int colCount) {
+    // Create the row clues vector and column clues vector
+    std::vector<std::vector<int>> rowClues, colClues;
+
+    // Create a random number generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(1, 3);
+
+    // Generate the row clues
+    for (int i = 0; i < rowCount; i++) {
+        std::vector<int> row;
+        int count = 0;
+        while (count < colCount) {
+            int blockLength = dis(gen);
+            if (count + blockLength > colCount) {
+                break;
+            }
+            row.push_back(blockLength);
+            count += blockLength + 1;
+        }
+        rowClues.push_back(row);
+    }
+
+    // Generate the column clues
+    for (int i = 0; i < colCount; i++) {
+        std::vector<int> col;
+        int count = 0;
+        while (count < rowCount) {
+            int blockLength = dis(gen);
+            if (count + blockLength > rowCount) {
+                break;
+            }
+            col.push_back(blockLength);
+            count += blockLength;
+        }
+        colClues.push_back(col);
+    }
+    vector<vector<std::vector<int>>> vec;
+    vec.push_back(rowClues);
+    vec.push_back(colClues);
+    return vec;
+}
 
 bool equals(vector<int> a, vector<int> b) {
     if( a.size() != b.size() ) return false;
@@ -114,7 +158,7 @@ public:
 
         vector<int> aux;
         vector< vector<int> > auxLines;
-
+        // check all possibilities
         for(int i = 1; i < (1 << dimension); i++) {
             go = true;
             aux.clear();
@@ -127,7 +171,7 @@ public:
             }
             if(go) auxLines.push_back(aux);
         }
-
+        // deletes posibilities, if it's not matching hints
         for(int i = auxLines.size() - 1; i >= 0; i--) {
             aux.clear();
             newVal = pos = 0;
@@ -141,7 +185,7 @@ public:
             if(newVal != 0) aux.push_back(newVal);
             if( not equals(aux, columns[idx]) ) auxLines.erase( auxLines.begin() + i );
         }
-
+        // is possibilities still exists mark options with possibility 100%
         if( auxLines.size() > 0 ) {
             for(int j = 0; j < dimension; j++) {
                 if(matrix[j][idx] != EMPTY) continue;
@@ -164,35 +208,36 @@ public:
         while(not finished) {
             loops++;
             cout << "Solving loop:" + to_string(loops) + "\n";
+            vector<vector<int>> results(2);
+            results[0].resize(dimension);
+            results[1].resize(dimension);
 
-//            for(int i = 0;)
+            for(int i = 0; i < dimension; i++) {
+                solveRow(i,results[0][i]);
+                solveColumn(i,results[1][i]);
+            }
 
             //check if sth hasChanged
             finished = not hasChanged(results);
         }
-        showMatrix();
     }
 
      void solveThread() {
-        cout << "Solving...\n";
+//        cout << "Solving...\n";
         bool finished = false;
         int loops = 0;
         while(not finished) {
             loops++;
             cout << "Solving loop:" + to_string(loops) + "\n";
             vector<thread> rowThreads(dimension);
+            std::vector<std::thread> colThreads(dimension);
             vector<vector<int>> results(2);
             results[0].resize(dimension);
             results[1].resize(dimension);
 
-            // Create a vector of threads for the rows0
-            for (int i = 0; i < rows.size(); i++) {
+            // Create a vectors of threads
+            for (int i = 0; i < dimension; i++) {
                 rowThreads[i] = thread(&Nonogram::solveRow, this, i, std::ref(results[0][i]));
-            }
-
-            // Create a vector of threads for the columns
-            std::vector<std::thread> colThreads(dimension);
-            for (int i = 0; i < columns.size(); i++) {
                 colThreads[i] = thread(&Nonogram::solveColumn, this, i, std::ref(results[1][i]));
             }
 
@@ -207,7 +252,6 @@ public:
             //check if sth hasChanged
             finished = not hasChanged(results);
         }
-        showMatrix();
     }
 
     void solveMPI(int argc, char *argv[]) {
@@ -227,14 +271,11 @@ public:
         int loops = 0;
         while(not finished) {
             loops++;
-            cout << "start loop:" + to_string(loops) + "\n";
-            cout << "test1\n";
+//            cout << "start loop:" + to_string(loops) + "\n";
             for(int i=rank*loopsForProc; i<rank*loopsForProc+loopsForProc;i++) {
                 solveRow(i, results[0][i]);
                 solveColumn(i, results[1][i]);
-                cout << "test2:" + to_string(i);
             }
-            cout << "test3\n";
             if(restLoops>rank) {
                 int i = dimension - rank;
                 solveRow(i, results[0][i]);
@@ -243,12 +284,11 @@ public:
 
             // Wait for the threads to finish
             MPI_Barrier(MPI_COMM_WORLD);
-            cout << "end loop:" + to_string(loops) + "\n";
+//            cout << "end loop:" + to_string(loops) + "\n";
             //check if sth hasChanged
             finished = not hasChanged(results);
         }
         MPI_Finalize();
-        showMatrix();
     }
 
     void prepare() {
@@ -256,21 +296,24 @@ public:
         cout << "Enter manually?[0/1]\n";
         cin >> response;
         getchar();
-        cout << "Preparing...\n";
+        cout << "Preparing...";
         if (response) { readInput(); } else { readDefault(); }
         cout << "Finished.\n";
     }
 
     void readDefault() {
         // Define the size of the nonogram
-        int d = 10;
-
+        int d = 5;
+        auto vec = generateNonogram(d, d);
         // Define the clues for the rows and columns
-        std::vector<std::vector<int>> rowClues = {{1, 5}, {2, 3}, {3, 2}, {1, 5}, {5, 1}, {4, 1}, {3, 3}, {2, 4}, {5, 1}, {1, 3}};
-        std::vector<std::vector<int>> colClues = {{3, 2}, {1, 2, 1}, {3, 2}, {2, 2}, {2, 1, 1}, {1, 5}, {5, 1}, {1, 3}, {2, 3}, {1, 2}};
+//        std::vector<std::vector<int>> rowClues = {{1, 5}, {2, 3}, {3, 2}, {1, 5}, {5, 1}, {4, 1}, {3, 3}, {2, 4}, {5, 1}, {1, 3}};
+//        std::vector<std::vector<int>> colClues = {{3, 2}, {1, 2, 1}, {3, 2}, {2, 2}, {2, 1, 1}, {1, 5}, {5, 1}, {1, 3}, {2, 3}, {1, 2}};
+
+        std::vector<std::vector<int>> rowClues = {{5}, {1, 1}, {1, 1}, {1, 1}, {1, 2}};
+        std::vector<std::vector<int>> colClues = {{1}, {5}, {1}, {5}, {1, 1}};
         setDimension(d);
-        this->columns = colClues;
-        this->rows = rowClues;
+        this->columns = colClues;//vec[0];
+        this->rows = rowClues;//vec[1];
     }
 
     void readInput() {
@@ -308,8 +351,16 @@ public:
     }
 };
 
+
     int main(int argc, char *argv[]) {
         Nonogram nonogram = Nonogram();
         nonogram.prepare();
+        auto start = std::chrono::steady_clock::now();
         nonogram.solveMPI(argc, argv);
+//        nonogram.solve();
+//        nonogram.solveThread();//0.0344824s
+        auto end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> timeDiff = end-start;
+        std::cout <<"Time: " << timeDiff.count() << "s\n";
+        nonogram.showMatrix();
     }
