@@ -2,6 +2,7 @@
 #include <vector>
 #include <thread>
 #include <sstream>
+#include <mpi.h>
 #define EMPTY -1
 
 using namespace std;
@@ -156,7 +157,23 @@ public:
         result = hasChanged;
     }
 
-     void solve() {
+    void solve() {
+        cout << "Solving...\n";
+        bool finished = false;
+        int loops = 0;
+        while(not finished) {
+            loops++;
+            cout << "Solving loop:" + to_string(loops) + "\n";
+
+//            for(int i = 0;)
+
+            //check if sth hasChanged
+            finished = not hasChanged(results);
+        }
+        showMatrix();
+    }
+
+     void solveThread() {
         cout << "Solving...\n";
         bool finished = false;
         int loops = 0;
@@ -190,6 +207,47 @@ public:
             //check if sth hasChanged
             finished = not hasChanged(results);
         }
+        showMatrix();
+    }
+
+    void solveMPI(int argc, char *argv[]) {
+        int size, rank;
+        MPI_Init(&argc, &argv);
+        MPI_Comm_size(MPI_COMM_WORLD, &size);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        cout << "Solving...\n";
+        bool finished = false;
+        vector<vector<int>> results(2);
+        results[0].resize(dimension);
+        results[1].resize(dimension);
+        cout << "size:" + to_string(size) + "\n";
+        cout << "rank:" + to_string(rank) + "\n";
+        int loopsForProc = this->dimension/size;
+        int restLoops = this->dimension%size;
+        int loops = 0;
+        while(not finished) {
+            loops++;
+            cout << "start loop:" + to_string(loops) + "\n";
+            cout << "test1\n";
+            for(int i=rank*loopsForProc; i<rank*loopsForProc+loopsForProc;i++) {
+                solveRow(i, results[0][i]);
+                solveColumn(i, results[1][i]);
+                cout << "test2:" + to_string(i);
+            }
+            cout << "test3\n";
+            if(restLoops>rank) {
+                int i = dimension - rank;
+                solveRow(i, results[0][i]);
+                solveColumn(i, results[1][i]);
+            }
+
+            // Wait for the threads to finish
+            MPI_Barrier(MPI_COMM_WORLD);
+            cout << "end loop:" + to_string(loops) + "\n";
+            //check if sth hasChanged
+            finished = not hasChanged(results);
+        }
+        MPI_Finalize();
         showMatrix();
     }
 
@@ -250,8 +308,8 @@ public:
     }
 };
 
-    int main() {
+    int main(int argc, char *argv[]) {
         Nonogram nonogram = Nonogram();
         nonogram.prepare();
-        nonogram.solve();
+        nonogram.solveMPI(argc, argv);
     }
